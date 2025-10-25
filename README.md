@@ -1,33 +1,37 @@
-# 🚀 Ansible Playbooks Server
+# Ansible Playbooks — Server automation
 
-> **Comprehensive server management automation across AWS regions**  
-> A collection of production-ready Ansible playbooks for Ubuntu server maintenance, security, monitoring, and configuration management.
+A small collection of Ansible playbooks to manage Ubuntu servers: patching, hardening, monitoring, backups and basic service setup. Playbooks live under the `Playbooks/` directory.
 
-## 📋 Table of Contents
+## Table of contents
+- Repository layout
+- Available playbooks (short list)
+- Prerequisites
+- Quick examples
+- Inventory
+- Best practices
 
-- [🏗️ Repository Structure](#️-repository-structure)
-- [🎯 Available Playbooks](#-available-playbooks)
-- [🔧 Prerequisites](#-prerequisites)
-- [🚀 Quick Start](#-quick-start)
-- [📖 Usage Guide](#-usage-guide)
-- [🛡️ Security Considerations](#️-security-considerations)
-- [📊 Monitoring & Alerts](#-monitoring--alerts)
-- [🔍 Inventory Management](#-inventory-management)
-- [📝 Best Practices](#-best-practices)
-
-## 🏗️ Repository Structure
+## Repository layout
 
 ```
 ansible-playbooks-server/
-├── aws-us-east-1/          # 🇺🇸 US East (N. Virginia) region
-│   ├── inventory           # 📋 Host inventory (172.29.24.x, 172.29.26.x)
-│   ├── check_patches.yml   # 🔍 Check for system updates
-│   ├── patch_hosts.yml     # ⬆️ Apply system patches
-│   ├── disk_usage_report.yml # 💾 Disk usage monitoring
-│   ├── os_version_report.yml # 🖥️ OS version reporting
-│   ├── security_hardening.yml # 🛡️ Security updates & hardening
-│   ├── ssh_hardening.yml   # 🔐 SSH security configuration
-│   ├── firewall_setup.yml  # 🔥 UFW firewall configuration
+├── Playbooks/
+│   ├── check_patches.yml
+│   ├── config_backup.yml
+│   ├── disk_usage_report.yml
+│   ├── docker_management.yml
+│   ├── firewall_setup.yml
+│   ├── inventory
+│   ├── inventory.template
+│   ├── log_management.yml
+│   ├── network_test.yml
+   │   ├── ntp_config.yml
+│   ├── os_version_report.yml
+│   ├── patch_hosts.yml
+│   ├── security_hardening.yml
+│   ├── service_health.yml
+│   ├── ssh_hardening.yml
+│   ├── sudo_config.yml
+│   ├── system_performance.yml
 # Ansible Playbooks — Server automation
 
 A small collection of Ansible playbooks to manage Ubuntu servers: patching, hardening, monitoring, backups and basic service setup. Playbooks live under the `Playbooks/` directory.
@@ -105,16 +109,21 @@ python3 -m pip install --user ansible
 
 ## Inventory
 
-Use `Playbooks/inventory` (copy `inventory.template` to `inventory` and edit as needed). Example snippet:
+Use `Playbooks/inventory` (copy `inventory.template` to `inventory` and edit as needed). The included template has a placeholder region name (`your-aws-region`) and example private IP addresses — replace them with your real host IPs.
+
+Example `Playbooks/inventory.template` snippet (updated):
 
 ```ini
 [lanhosts]
-172.29.24.10
-#172.29.24.11  # commented out for maintenance
+# Replace these placeholder IPs with actual host IPs
+# Example: 192.168.1.10
+# Example: 192.168.1.11  # commented out for maintenance
+# Example: 192.168.1.12
 
 [all:vars]
 ansible_user=ubuntu
 ansible_ssh_private_key_file=~/.ssh/id_rsa
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 ```
 
 Quick connectivity test:
@@ -141,7 +150,7 @@ ansible-playbook -i Playbooks/inventory Playbooks/disk_usage_report.yml
 Target a group or host with -l (limit):
 
 ```bash
-ansible-playbook -i Playbooks/inventory -l 172.29.24.10 Playbooks/ssh_hardening.yml
+ansible-playbook -i Playbooks/inventory -l 192.168.1.10 Playbooks/ssh_hardening.yml
 ```
 
 ## Best practices
@@ -153,13 +162,13 @@ ansible-playbook -i Playbooks/inventory -l 172.29.24.10 Playbooks/ssh_hardening.
 
 ## After this README change
 
-I updated `README.md` to reflect the current repository layout (playbooks under `Playbooks/`).
+I updated `README.md` to reflect the current repository layout (playbooks under `Playbooks/`) and to align inventory examples with `Playbooks/inventory.template` (region placeholder and sample 192.x.x.x addresses).
 
 If you're happy with the change, review locally and commit. Example git commands you can run locally (or use GitHub Desktop):
 
 ```bash
 git add README.md
-git commit -m "docs: update README to match Playbooks/ layout and usage"
+git commit -m "docs: update README to match Playbooks/ layout and inventory.template changes"
 ```
 
 Then push or create a PR using your usual workflow (you mentioned GitHub Desktop is ready to push).
