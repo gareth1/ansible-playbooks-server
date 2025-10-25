@@ -1,0 +1,63 @@
+---
+- name: System Performance Monitoring
+  hosts: all
+  become: no
+  gather_facts: yes
+
+  tasks:
+    - name: Gather system performance data
+      ansible.builtin.shell: |
+        echo "=== System Performance Report for {{ inventory_hostname }} ==="
+        echo "Memory Usage: $(free -h | grep Mem | awk '{print $3"/"$2 " (" $3/$2*100 "%)"}')"
+        echo "CPU Load: $(uptime | awk -F'load average:' '{print $2}')"
+        echo "Process Count: $(ps aux | wc -l)"
+        echo "Disk Usage: $(df -h / | tail -1 | awk '{print $5}')"
+        echo "Top 5 CPU Processes:"
+        ps aux --sort=-%cpu | head -6 | tail -5 | awk '{print $2, $3"%", $11}'
+        echo "Top 5 Memory Processes:"
+        ps aux --sort=-%mem | head -6 | tail -5 | awk '{print $2, $4"%", $11}'
+      register: performance_data
+      changed_when: false
+
+    - name: Display performance data
+      ansible.builtin.debug:
+        msg: "{{ performance_data.stdout_lines }}"
+
+    - name: Check memory usage percentage
+      ansible.builtin.shell: free | grep Mem | awk '{printf "%.0f", $3/$2 * 100.0}'
+      register: memory_usage_percent
+      changed_when: false
+
+    - name: Display memory warning
+      ansible.builtin.debug:
+        msg: "WARNING: High memory usage detected on {{ inventory_hostname }}: {{ memory_usage_percent.stdout }}%"
+      when: memory_usage_percent.stdout | int > 80
+
+    - name: Check disk usage percentage
+      ansible.builtin.shell: df / | tail -1 | awk '{print $5}' | sed 's/%//'
+      register: disk_usage_percent
+      changed_when: false
+
+    - name: Display disk warning
+      ansible.builtin.debug:
+        msg: "WARNING: High disk usage detected on {{ inventory_hostname }}: {{ disk_usage_percent.stdout }}%"
+      when: disk_usage_percent.stdout | int > 80
+
+    - name: Get system load average
+      ansible.builtin.shell: uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//'
+      register: load_avg_1min
+      changed_when: false
+
+    - name: Get CPU core count
+      ansible.builtin.shell: nproc
+      register: cpu_cores
+      changed_when: false
+
+    - name: Calculate load average per core
+      ansible.builtin.set_fact:
+        load_per_core: "{{ (load_avg_1min.stdout | float) / (cpu_cores.stdout | int) }}"
+
+    - name: Display load per core warning
+      ansible.builtin.debug:
+        msg: "WARNING: High load per core on {{ inventory_hostname }}: {{ load_per_core | round(2) }} (threshold: 1.0)"
+      when: load_per_core > 1.0 

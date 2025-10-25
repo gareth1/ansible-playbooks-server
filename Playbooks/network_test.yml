@@ -1,0 +1,139 @@
+---
+- name: Network Connectivity Testing
+  hosts: all
+  become: no
+  gather_facts: yes
+
+  tasks:
+    - name: Test DNS resolution
+      ansible.builtin.command: nslookup google.com
+      register: dns_test
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Test internet connectivity
+      ansible.builtin.uri:
+        url: http://httpbin.org/get
+        method: GET
+        timeout: 10
+      register: connectivity_test
+      ignore_errors: yes
+
+    - name: Get IMDSv2 session token
+      ansible.builtin.uri:
+        url: http://169.254.169.254/latest/api/token
+        method: PUT
+        headers:
+          X-aws-ec2-metadata-token-ttl-seconds: "21600" # Token valid for 6 hours (max 21600 seconds)
+        return_content: true
+        timeout: 5
+      register: imdsv2_token_response
+      failed_when: imdsv2_token_response.status != 200
+      # No ignore_errors here; if token acquisition fails, subsequent steps will also fail
+      # You can keep ignore_errors on this task if you want the playbook to continue even if IMDSv2 token fails,
+      # but be aware that the next task will likely fail too.
+
+    - name: Test AWS metadata service (instance-id) using IMDSv2 token
+      ansible.builtin.uri:
+        url: http://169.254.169.254/latest/meta-data/instance-id
+        method: GET
+        headers:
+          X-aws-ec2-metadata-token: "{{ imdsv2_token_response.content }}"
+        return_content: true
+        timeout: 5
+      register: aws_metadata_test
+      # Keep ignore_errors if you want the playbook to continue regardless of this test's success
+      # Otherwise, remove it to make the playbook fail if the metadata service isn't accessible
+      ignore_errors: yes
+
+    - name: Display AWS metadata test result (for debugging)
+      ansible.builtin.debug:
+        var: aws_metadata_test
+      when: aws_metadata_test is defined and aws_metadata_test.status != 200 # Only show if it failed or if you want to see the success output
+      # You might also want to display a success message if the test passed.
+
+    - name: Test localhost connectivity (port 80)
+      ansible.builtin.uri:
+        url: http://localhost
+        method: GET
+        timeout: 5
+      register: localhost_test_80
+      ignore_errors: yes
+
+    - name: Test localhost connectivity (port 8080)
+      ansible.builtin.uri:
+        url: http://localhost:8080
+        method: GET
+        timeout: 5
+      register: localhost_test_8080
+      ignore_errors: yes
+
+    - name: Test localhost connectivity (port 8443)
+      ansible.builtin.uri:
+        url: https://localhost:8443
+        method: GET
+        timeout: 5
+        validate_certs: no
+      register: localhost_test_8443
+      ignore_errors: yes
+
+    - name: Get network interface information
+      ansible.builtin.shell: |
+        echo "=== Network Interfaces ==="
+        ip addr show | grep -E "inet |UP|DOWN"
+        echo "=== Routing Table ==="
+        ip route show
+        echo "=== DNS Configuration ==="
+        cat /etc/resolv.conf
+      register: network_info
+      changed_when: false
+
+    - name: Display network information
+      ansible.builtin.debug:
+        msg: "{{ network_info.stdout_lines }}"
+
+    - name: Display connectivity test results
+      ansible.builtin.debug:
+        msg: |
+          === Network Connectivity Report for {{ inventory_hostname }} ===
+          DNS Resolution: {{ 'PASS' if dns_test.rc == 0 else 'FAIL' }}
+          Internet Connectivity: {{ 'PASS' if connectivity_test.status == 200 else 'FAIL' }}
+          AWS Metadata Service: {{ 'PASS' if aws_metadata_test.status == 200 else 'FAIL' }}
+          Localhost Connectivity (Port 80): {{ 'PASS' if localhost_test_80.status == 200 else 'FAIL' }}
+          Localhost Connectivity (Port 8080): {{ 'PASS' if localhost_test_8080.status == 200 else 'FAIL' }}
+          Localhost Connectivity (Port 8443): {{ 'PASS' if localhost_test_8443.status == 200 else 'FAIL' }}
+
+    - name: Test specific ports
+      ansible.builtin.wait_for:
+        host: "{{ item.host }}"
+        port: "{{ item.port }}"
+        timeout: 5
+      loop:
+        - { host: "8.8.8.8", port: 53 }
+        - { host: "1.1.1.1", port: 53 }
+        - { host: "{{ inventory_hostname }}", port: 22 }
+      register: port_tests
+      ignore_errors: yes
+
+    - name: Display port test results
+      ansible.builtin.debug:
+        msg: |
+          Port Test Results for {{ inventory_hostname }}:
+          {% for result in port_tests.results %}
+          {{ result.item.host }}:{{ result.item.port }} - {{ 'PASS' if result.state == 'started' else 'FAIL' }}
+          {% endfor %}
+
+    - name: Check for network errors
+      ansible.builtin.shell: |
+        echo "=== Network Error Summary ==="
+        dmesg | grep -i "network\|ethernet\|wifi" | tail -5
+        echo "=== Interface Statistics ==="
+        cat /proc/net/dev | grep -E "(eth|ens|enp)" | head -3
+      register: network_errors
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Display network errors
+      ansible.builtin.debug:
+        msg: "{{ network_errors.stdout_lines }}"
+      when: network_errors.stdout_lines | length > 0 

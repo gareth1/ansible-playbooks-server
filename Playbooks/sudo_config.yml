@@ -1,0 +1,92 @@
+---
+- name: Sudo Configuration
+  hosts: lanhosts
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Backup sudoers file
+      ansible.builtin.copy:
+        src: /etc/sudoers
+        dest: /etc/sudoers.backup.{{ ansible_date_time.epoch }}
+        remote_src: yes
+        backup: yes
+
+    - name: Configure sudoers for admin group
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        line: "%sudo ALL=(ALL:ALL) ALL"
+        state: present
+        validate: 'visudo -cf %s'
+
+    - name: Configure sudoers for wheel group (RHEL/CentOS)
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        line: "%wheel ALL=(ALL:ALL) ALL"
+        state: present
+        validate: 'visudo -cf %s'
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Set default sudo timeout
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        line: "Defaults timestamp_timeout=15"
+        state: present
+        validate: 'visudo -cf %s'
+
+    - name: Set sudo log file
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        line: "Defaults logfile=/var/log/sudo.log"
+        state: present
+        validate: 'visudo -cf %s'
+
+    - name: Create sudo log file
+      ansible.builtin.file:
+        path: /var/log/sudo.log
+        state: touch
+        mode: '0640'
+        owner: root
+        group: root
+
+    - name: Configure sudo log rotation
+      ansible.builtin.copy:
+        content: |
+          /var/log/sudo.log {
+            weekly
+            missingok
+            rotate 52
+            compress
+            delaycompress
+            notifempty
+            create 640 root root
+          }
+        dest: /etc/logrotate.d/sudo
+        mode: '0644'
+
+    - name: Set secure path for sudo
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        line: 'Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"'
+        state: present
+        validate: 'visudo -cf %s'
+
+    - name: Disable sudo insults
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        line: "Defaults !insults"
+        state: present
+        validate: 'visudo -cf %s'
+
+    - name: Test sudo configuration
+      ansible.builtin.shell: visudo -c
+      register: sudo_test
+      changed_when: false
+
+    - name: Display sudo test results
+      ansible.builtin.debug:
+        msg: "Sudo configuration test: {{ sudo_test.stdout }}"
+
+    - name: Display sudo configuration completion
+      ansible.builtin.debug:
+        msg: "Sudo configuration completed for {{ inventory_hostname }}" 

@@ -1,0 +1,98 @@
+---
+- name: User Account Management
+  hosts: lanhosts
+  become: yes
+  gather_facts: yes
+
+  vars:
+    admin_user: admin
+    admin_group: sudo
+
+  tasks:
+    - name: Create admin user
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        groups: "{{ admin_group }}"
+        shell: /bin/bash
+        create_home: yes
+        generate_ssh_key: yes
+        ssh_key_bits: 2048
+        ssh_key_type: rsa
+        state: present
+
+    - name: Create .ssh directory for admin user
+      ansible.builtin.file:
+        path: /home/{{ admin_user }}/.ssh
+        state: directory
+        mode: '0700'
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+
+    - name: Check if SSH public key exists
+      ansible.builtin.stat:
+        path: "~/.ssh/id_rsa.pub"
+      register: ssh_key_check
+
+    - name: Set authorized_keys for admin user
+      ansible.builtin.authorized_key:
+        user: "{{ admin_user }}"
+        state: present
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+        manage_dir: yes
+      when: ssh_key_check.stat.exists
+      register: ssh_key_result
+
+    - name: Display SSH key status
+      ansible.builtin.debug:
+        msg: |
+          SSH Key Status for {{ inventory_hostname }}:
+          Key exists: {{ ssh_key_check.stat.exists }}
+          Key applied: {{ ssh_key_result.changed if ssh_key_result is defined else 'N/A' }}
+          {% if not ssh_key_check.stat.exists %}
+          WARNING: SSH public key not found at ~/.ssh/id_rsa.pub
+          Please ensure SSH key is properly configured before running this playbook
+          {% endif %}
+
+    - name: Remove default ubuntu user
+      ansible.builtin.user:
+        name: ubuntu
+        state: absent
+        remove: yes
+      when: ansible_facts['distribution'] == 'Ubuntu'
+
+    - name: Remove default ec2-user
+      ansible.builtin.user:
+        name: ec2-user
+        state: absent
+        remove: yes
+      when: ansible_facts['distribution'] == 'Amazon'
+
+    - name: Set password expiration for all users
+      ansible.builtin.shell: chage -M 90 {{ item }}
+      loop: "{{ ansible_user_id }}"
+      ignore_errors: yes
+
+    - name: Lock inactive accounts
+      ansible.builtin.shell: passwd -l {{ item }}
+      loop: "{{ ansible_user_id }}"
+      when: item not in [admin_user, ansible_user]
+      ignore_errors: yes
+
+    - name: Create system users for applications
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        system: yes
+        shell: /bin/false
+        create_home: no
+        state: present
+      loop:
+        - { name: 'nginx' }
+        - { name: 'postgres' }
+        - { name: 'redis' }
+
+    - name: Display user management completion
+      ansible.builtin.debug:
+        msg: |
+          User management completed for {{ inventory_hostname }}
+          Admin user: {{ admin_user }}
+          Users created: {{ ansible_user_id | length }} 

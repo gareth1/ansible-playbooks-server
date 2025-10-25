@@ -1,0 +1,49 @@
+---
+- name: SSH Security Hardening
+  hosts: lanhosts
+  become: yes
+  gather_facts: yes
+
+  handlers:
+    - name: restart ssh
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+
+  tasks:
+    - name: Backup SSH configuration
+      ansible.builtin.copy:
+        src: /etc/ssh/sshd_config
+        dest: /etc/ssh/sshd_config.backup.{{ ansible_date_time.epoch }}
+        remote_src: yes
+        backup: yes
+
+    - name: Configure SSH security settings
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+      loop:
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+        - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
+        - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+        - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+        - { regexp: '^#?Protocol', line: 'Protocol 2' }
+        - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+        - { regexp: '^#?AllowTcpForwarding', line: 'AllowTcpForwarding no' }
+        - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+      notify: restart ssh
+
+    - name: Ensure SSH service is enabled and running
+      ansible.builtin.service:
+        name: ssh
+        state: started
+        enabled: yes
+
+    - name: Display SSH hardening completion
+      ansible.builtin.debug:
+        msg: "SSH hardening completed for {{ inventory_hostname }}" 

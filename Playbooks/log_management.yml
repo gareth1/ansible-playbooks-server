@@ -1,0 +1,97 @@
+---
+- name: Log Management and Rotation
+  hosts: lanhosts
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Install logrotate
+      ansible.builtin.apt:
+        name: logrotate
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Create application log directory
+      ansible.builtin.file:
+        path: /var/log/app
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Configure log rotation for application logs
+      ansible.builtin.copy:
+        content: |
+          /var/log/app/*.log {
+            daily
+            missingok
+            rotate 7
+            compress
+            delaycompress
+            notifempty
+            create 644 root root
+            postrotate
+              /bin/kill -HUP `cat /var/run/syslogd.pid 2>/dev/null` 2>/dev/null || true
+            endscript
+          }
+        dest: /etc/logrotate.d/app-logs
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Configure log rotation for system logs
+      ansible.builtin.copy:
+        content: |
+          /var/log/syslog {
+            rotate 7
+            daily
+            missingok
+            notifempty
+            compress
+            delaycompress
+            postrotate
+              /bin/kill -HUP `cat /var/run/syslogd.pid 2>/dev/null` 2>/dev/null || true
+            endscript
+          }
+
+          /var/log/auth.log {
+            rotate 7
+            daily
+            missingok
+            notifempty
+            compress
+            delaycompress
+            postrotate
+              /bin/kill -HUP `cat /var/run/syslogd.pid 2>/dev/null` 2>/dev/null || true
+            endscript
+          }
+        dest: /etc/logrotate.d/system-logs
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Create log cleanup script
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # Clean up old log files
+          find /var/log -name "*.log.*" -mtime +30 -delete
+          find /var/log -name "*.gz" -mtime +30 -delete
+          find /var/log -name "*.1" -mtime +30 -delete
+        dest: /usr/local/bin/cleanup-logs.sh
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Add log cleanup to crontab
+      ansible.builtin.cron:
+        name: "Clean up old log files"
+        hour: "2"
+        minute: "0"
+        job: "/usr/local/bin/cleanup-logs.sh"
+        state: present
+
+    - name: Display log management completion
+      ansible.builtin.debug:
+        msg: "Log management configuration completed for {{ inventory_hostname }}" 

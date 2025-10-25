@@ -1,0 +1,17 @@
+---
+- name: Check for available updates on Ubuntu instances
+  hosts: lanhosts
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Check for available updates on Ubuntu systems
+      ansible.builtin.shell: "apt list --upgradable | tail -n +2"
+      register: ubuntu_updates
+      changed_when: false
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Display updates for Ubuntu systems
+      ansible.builtin.debug:
+        msg: "{{ ubuntu_updates.stdout_lines }}"
+      when: ansible_facts['os_family'] == 'Debian' and ubuntu_updates.stdout_lines

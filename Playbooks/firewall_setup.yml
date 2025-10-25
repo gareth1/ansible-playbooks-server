@@ -1,0 +1,94 @@
+---
+- name: Firewall Configuration
+  hosts: lanhosts
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Install UFW
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Reset UFW to default state
+      ansible.builtin.ufw:
+        state: reset
+
+    - name: Configure UFW default policies
+      ansible.builtin.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+
+    - name: Allow SSH
+      ansible.builtin.ufw:
+        rule: allow
+        port: ssh
+        proto: tcp
+
+    - name: Allow HTTP
+      ansible.builtin.ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+
+    - name: Allow HTTPS
+      ansible.builtin.ufw:
+        rule: allow
+        port: '443'
+        proto: tcp
+
+    - name: Allow DNS
+      ansible.builtin.ufw:
+        rule: allow
+        port: '53'
+        proto: tcp
+
+    - name: Allow DNS UDP
+      ansible.builtin.ufw:
+        rule: allow
+        port: '53'
+        proto: udp
+
+    - name: Allow NTP
+      ansible.builtin.ufw:
+        rule: allow
+        port: '123'
+        proto: udp
+
+    - name: Allow ICMP (ping)
+      ansible.builtin.ufw:
+        rule: allow
+        proto: icmp
+
+    - name: Enable UFW logging
+      ansible.builtin.ufw:
+        logging: on
+
+    - name: Enable UFW
+      ansible.builtin.ufw:
+        state: enabled
+
+    - name: Get UFW status
+      ansible.builtin.shell: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: Display UFW status
+      ansible.builtin.debug:
+        msg: "{{ ufw_status.stdout_lines }}"
+
+    - name: Create UFW configuration backup
+      ansible.builtin.copy:
+        src: /etc/ufw/user.rules
+        dest: /etc/ufw/user.rules.backup.{{ ansible_date_time.epoch }}
+        remote_src: yes
+        backup: yes
+
+    - name: Display firewall setup completion
+      ansible.builtin.debug:
+        msg: "Firewall configuration completed for {{ inventory_hostname }}" 

@@ -1,0 +1,90 @@
+---
+- name: Configuration Backup
+  hosts: lanhosts
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Create backup directory structure
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      loop:
+        - /opt/backups
+        - /opt/backups/config
+        - /opt/backups/config/{{ ansible_date_time.date }}
+
+    - name: Define important configuration files
+      ansible.builtin.set_fact:
+        config_files:
+          - /etc/ssh/sshd_config
+          - /etc/hosts
+          - /etc/resolv.conf
+          - /etc/fstab
+          - /etc/apt/sources.list
+          - /etc/network/interfaces
+          - /etc/systemd/system.conf
+          - /etc/sudoers
+          - /etc/passwd
+          - /etc/group
+
+    - name: Backup important configuration files
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/opt/backups/config/{{ ansible_date_time.date }}/{{ item | basename }}.backup"
+        remote_src: yes
+        backup: yes
+        mode: '0644'
+      loop: "{{ config_files }}"
+      ignore_errors: yes
+      register: backup_results
+
+    - name: Create backup manifest
+      ansible.builtin.copy:
+        content: |
+          Configuration Backup Manifest
+          Date: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          
+          Backed up files:
+          {% for result in backup_results.results %}
+          {% if result.changed %}
+          ✓ {{ result.item }}
+          {% else %}
+          ✗ {{ result.item }} (failed or unchanged)
+          {% endif %}
+          {% endfor %}
+        dest: "/opt/backups/config/{{ ansible_date_time.date }}/backup-manifest.txt"
+        mode: '0644'
+
+    - name: Create compressed backup archive
+      ansible.builtin.archive:
+        path: "/opt/backups/config/{{ ansible_date_time.date }}"
+        dest: "/opt/backups/config-backup-{{ inventory_hostname }}-{{ ansible_date_time.date }}.tar.gz"
+        format: gz
+        remove: yes
+
+    - name: Clean up old backups (keep last 7 days)
+      ansible.builtin.find:
+        paths: /opt/backups
+        patterns: "config-backup-*.tar.gz"
+        age: 7d
+      register: old_backups
+
+    - name: Remove old backup files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backups.files }}"
+      when: old_backups.files | length > 0
+
+    - name: Display backup completion
+      ansible.builtin.debug:
+        msg: |
+          Configuration backup completed for {{ inventory_hostname }}
+          Backup location: /opt/backups/config-backup-{{ inventory_hostname }}-{{ ansible_date_time.date }}.tar.gz
+          Files backed up: {{ backup_results.results | selectattr('changed') | list | length }} 

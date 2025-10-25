@@ -1,0 +1,114 @@
+---
+- name: NTP Configuration
+  hosts: lanhosts
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Install NTP
+      ansible.builtin.apt:
+        name: ntp
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Backup NTP configuration
+      ansible.builtin.copy:
+        src: /etc/ntp.conf
+        dest: /etc/ntp.conf.backup.{{ ansible_date_time.epoch }}
+        remote_src: yes
+        backup: yes
+
+    - name: Configure NTP servers
+      ansible.builtin.lineinfile:
+        path: /etc/ntp.conf
+        regexp: '^server'
+        line: 'server 0.ubuntu.pool.ntp.org iburst'
+        state: present
+
+    - name: Add additional NTP servers
+      ansible.builtin.lineinfile:
+        path: /etc/ntp.conf
+        line: "{{ item }}"
+        state: present
+      loop:
+        - 'server 1.ubuntu.pool.ntp.org iburst'
+        - 'server 2.ubuntu.pool.ntp.org iburst'
+        - 'server 3.ubuntu.pool.ntp.org iburst'
+        - 'server ntp.aliyun.com iburst'
+
+    - name: Configure NTP drift file
+      ansible.builtin.lineinfile:
+        path: /etc/ntp.conf
+        regexp: '^driftfile'
+        line: 'driftfile /var/lib/ntp/ntp.drift'
+        state: present
+
+    - name: Configure NTP log file
+      ansible.builtin.lineinfile:
+        path: /etc/ntp.conf
+        regexp: '^logfile'
+        line: 'logfile /var/log/ntp.log'
+        state: present
+
+    - name: Create NTP log file
+      ansible.builtin.file:
+        path: /var/log/ntp.log
+        state: touch
+        mode: '0644'
+        owner: ntp
+        group: ntp
+
+    - name: Configure NTP log rotation
+      ansible.builtin.copy:
+        content: |
+          /var/log/ntp.log {
+            weekly
+            missingok
+            rotate 52
+            compress
+            delaycompress
+            notifempty
+            create 644 ntp ntp
+          }
+        dest: /etc/logrotate.d/ntp
+        mode: '0644'
+
+    - name: Start and enable NTP service
+      ansible.builtin.service:
+        name: ntp
+        state: started
+        enabled: yes
+
+    - name: Wait for NTP to sync
+      ansible.builtin.wait_for:
+        timeout: 60
+
+    - name: Check NTP status
+      ansible.builtin.command: ntpq -p
+      register: ntp_status
+      changed_when: false
+
+    - name: Display NTP status
+      ansible.builtin.debug:
+        msg: "{{ ntp_status.stdout_lines }}"
+
+    - name: Check system time
+      ansible.builtin.command: date
+      register: system_time
+      changed_when: false
+
+    - name: Display system time
+      ansible.builtin.debug:
+        msg: "System time: {{ system_time.stdout }}"
+
+    - name: Check NTP service status
+      ansible.builtin.service_facts:
+
+    - name: Display NTP service status
+      ansible.builtin.debug:
+        msg: "NTP service status: {{ ansible_facts.services['ntp'].state }}"
+
+    - name: Display NTP configuration completion
+      ansible.builtin.debug:
+        msg: "NTP configuration completed for {{ inventory_hostname }}" 

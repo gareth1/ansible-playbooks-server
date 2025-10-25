@@ -1,0 +1,18 @@
+---
+- name: Report on Linux OS Versions
+  hosts: all
+  gather_facts: yes # This is the default, but explicitly stating it for clarity.
+  become: no # No elevated privileges needed for just gathering and reporting facts.
+
+  tasks:
+    - name: Display OS Distribution and Version
+      debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          OS Family: {{ ansible_os_family | default('N/A') }}
+          Distribution: {{ ansible_distribution | default('N/A') }}
+          Version: {{ ansible_distribution_version | default('N/A') }}
+          Full OS Name: {{ ansible_distribution + ' ' + ansible_distribution_version if ansible_distribution is defined and ansible_distribution_version is defined else 'N/A' }}
+          Kernel: {{ ansible_kernel | default('N/A') }}
+      # The 'default' filter is used to handle cases where a fact might not be available on a specific host,
+      # preventing an error and printing 'N/A' instead.

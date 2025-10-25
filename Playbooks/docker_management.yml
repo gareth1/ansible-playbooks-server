@@ -1,0 +1,157 @@
+---
+- name: Docker Installation and Management
+  hosts: lanhosts
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Add Docker GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Start and enable Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add user to docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+      register: docker_user_add
+
+    - name: Display Docker group warning
+      ansible.builtin.debug:
+        msg: |
+          WARNING: User {{ ansible_user }} has been added to docker group
+          This grants root-equivalent access to Docker containers
+          Consider implementing additional security measures:
+          - Use Docker rootless mode
+          - Implement container security policies
+          - Monitor Docker usage
+
+    - name: Create docker daemon configuration
+      ansible.builtin.copy:
+        content: |
+          {
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            },
+            "storage-driver": "overlay2",
+            "live-restore": true,
+            "userns-remap": "default",
+            "no-new-privileges": true,
+            "default-ulimits": {
+              "nofile": {
+                "Hard": 64000,
+                "Name": "nofile",
+                "Soft": 64000
+              }
+            },
+            "seccomp-profile": "/etc/docker/seccomp-profile.json"
+          }
+        dest: /etc/docker/daemon.json
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Create docker log directory
+      ansible.builtin.file:
+        path: /var/log/docker
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Configure docker log rotation
+      ansible.builtin.copy:
+        content: |
+          /var/log/docker/*.log {
+            daily
+            missingok
+            rotate 7
+            compress
+            delaycompress
+            notifempty
+            create 644 root root
+          }
+        dest: /etc/logrotate.d/docker
+        mode: '0644'
+
+    - name: Restart Docker service
+      ansible.builtin.service:
+        name: docker
+        state: restarted
+
+    - name: Wait for Docker to be ready
+      ansible.builtin.wait_for:
+        port: 2375
+        timeout: 30
+      ignore_errors: yes
+
+    - name: Test Docker installation
+      ansible.builtin.command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Display Docker version
+      ansible.builtin.debug:
+        msg: "Docker version: {{ docker_version.stdout }}"
+
+    - name: Test Docker Compose
+      ansible.builtin.command: docker compose version
+      register: docker_compose_version
+      changed_when: false
+
+    - name: Display Docker Compose version
+      ansible.builtin.debug:
+        msg: "Docker Compose version: {{ docker_compose_version.stdout }}"
+
+    - name: Get Docker system info
+      ansible.builtin.command: docker system info
+      register: docker_info
+      changed_when: false
+
+    - name: Display Docker system info
+      ansible.builtin.debug:
+        msg: "{{ docker_info.stdout_lines }}"
+
+    - name: Display Docker installation completion
+      ansible.builtin.debug:
+        msg: "Docker installation and configuration completed for {{ inventory_hostname }}" 

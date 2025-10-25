@@ -1,0 +1,65 @@
+---
+- name: Service Health Monitoring
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Define critical services to check
+      ansible.builtin.set_fact:
+        critical_services:
+          - ssh
+          - systemd-resolved
+          - ufw
+          - cron
+          - rsyslog
+
+    - name: Check critical services status
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop: "{{ critical_services }}"
+      ignore_errors: yes
+      register: service_status
+
+    - name: Display service status report
+      ansible.builtin.debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          Service: {{ item.item }}
+          Status: {{ 'RUNNING' if item.state == 'started' else 'STOPPED' }}
+          Enabled: {{ 'YES' if item.enabled else 'NO' }}
+      loop: "{{ service_status.results }}"
+      when: item is defined
+
+    - name: Check for failed services
+      ansible.builtin.shell: systemctl --failed --no-legend | wc -l
+      register: failed_services_count
+      changed_when: false
+
+    - name: Display failed services count
+      ansible.builtin.debug:
+        msg: "Failed services on {{ inventory_hostname }}: {{ failed_services_count.stdout }}"
+
+    - name: Get system uptime
+      ansible.builtin.shell: uptime
+      register: system_uptime
+      changed_when: false
+
+    - name: Display system uptime
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} uptime: {{ system_uptime.stdout }}"
+
+    - name: Check for high load average
+      ansible.builtin.shell: uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//'
+      register: load_average
+      changed_when: false
+
+    - name: Display load average warning
+      ansible.builtin.debug:
+        msg: "WARNING: High load average detected on {{ inventory_hostname }}: {{ load_average.stdout }}"
+      when: load_average.stdout | float > 5.0 

@@ -1,0 +1,45 @@
+---
+- name: Patch local Ubuntu hosts
+  hosts: lanhosts
+  become: yes
+  tasks:
+    - name: Check if systemd is available
+      shell: which systemctl
+      register: systemctl_check
+      ignore_errors: yes
+
+    - name: Fix systemd environment if needed
+      shell: |
+        if [ ! -f /run/systemd/system ]; then
+          mkdir -p /run/systemd/system
+        fi
+        if [ ! -f /etc/systemd/system ]; then
+          mkdir -p /etc/systemd/system
+        fi
+      ignore_errors: yes
+
+    - name: Hold openssh-server to prevent conflicts
+      shell: apt-mark hold openssh-server
+      ignore_errors: yes
+
+    - name: Update package list
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Apply all patches and upgrades (excluding openssh-server)
+      shell: apt-get dist-upgrade -y --allow-downgrades
+      register: apt_update
+      ignore_errors: yes
+
+    - name: Show upgrade results
+      debug:
+        msg: "Upgrade completed with changes: {{ apt_update.changed }}"
+      when: apt_update is defined
+
+    - name: Reboot if needed
+      reboot:
+        msg: "Rebooting after patching"
+        reboot_timeout: 600
+        test_command: uptime
+      when: apt_update is defined and apt_update.changed

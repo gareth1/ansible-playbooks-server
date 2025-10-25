@@ -1,0 +1,40 @@
+---
+- name: Report on Disk Usage
+  hosts: all
+  gather_facts: yes # Ensure facts are gathered, including disk information
+  become: no        # No need for sudo/root privileges to gather this information
+
+  tasks:
+    - name: Filter out unnecessary filesystems
+      ansible.builtin.set_fact:
+        # Filter out temporary/pseudo filesystems and specific mount points that might clutter the report
+        # Adjust this 'reject' filter based on what you consider relevant to report on
+        filtered_mounts: >-
+          {{ ansible_mounts | rejectattr('fstype', 'equalto', 'tmpfs') |
+                             rejectattr('mount', 'match', '^/sys') |
+                             rejectattr('mount', 'match', '^/proc') |
+                             rejectattr('mount', 'match', '^/dev') |
+                             rejectattr('mount', 'match', '^/snap') |
+                             rejectattr('mount', 'match', '^/boot/efi') |
+                             list
+          }}
+
+    - name: Display Disk Usage for each mounted filesystem
+      ansible.builtin.debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          Mount Point: {{ item.mount | default('N/A') }}
+          Filesystem: {{ item.device | default('N/A') }}
+          Type: {{ item.fstype | default('N/A') }}
+          Total Size: {{ ((item.size_total | default(0)) / (1024*1024*1024)) | round(2) }} GB
+          Available Space: {{ ((item.size_available | default(0)) / (1024*1024*1024)) | round(2) }} GB
+          Used Percentage: {{ (item.used_percent | default(((item.size_total | default(0) - item.size_available | default(0)) * 100 / item.size_total) | round(2, 'floor') if item.size_total | default(0) > 0 else 0)) | default('N/A') }}%
+      when: item.mount is defined # Only continue if the mount point itself is defined
+      loop: "{{ filtered_mounts }}" # Loop over the newly created 'filtered_mounts' variable
+      loop_control:
+        label: "{{ item.mount }}" # Make the loop output more readable
+
+    - name: Handle cases where no disk facts are gathered (e.g., if filtered_mounts is empty after filtering)
+      ansible.builtin.debug:
+        msg: "No relevant disk usage facts found for {{ inventory_hostname }} or all filtered out."
+      when: filtered_mounts is not defined or filtered_mounts | length == 0
